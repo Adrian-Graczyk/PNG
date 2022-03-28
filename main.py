@@ -6,8 +6,9 @@ import numpy as np
 import fire
 import struct
 import zlib
+import png
 
-image = open('dog.png', 'rb')
+image = open('dragon.png', 'rb')
 PngSignature = b'\x89PNG\r\n\x1a\n'
 if image.read(len(PngSignature)) != PngSignature:
     raise Exception('Invalid PNG Signature')
@@ -59,9 +60,6 @@ for Type in Color_Types:
         color_type_string = Type[1]
 
 
-
-
-
 print("\nChunk IHDR:")
 print("Width = ", width)
 print("Height = ", height)
@@ -70,3 +68,94 @@ print("Color type = ", color_type, "- ", color_type_string)
 print("Compression method = ", compression_method)
 print("Filter method = ", filter_method)
 print("Interlace method = ", interlace_method, "\n")
+
+
+# tEXt tEXt zTXt
+tEXt_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'tEXt')
+if len(tEXt_data) > 0:
+    print("\nChunk tEXt:")
+    text_b = str(tEXt_data)
+    text_b = text_b.lstrip("b")
+    text_b = text_b.lstrip("'")
+    text_b = text_b.rstrip("'")
+    Text = text_b.split("\\x00")
+    print(Text)
+
+# iTXt
+iTXt_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'iTXt')
+if len(iTXt_data) > 0:
+    Text = str(iTXt_data)
+    print(Text)
+
+# tIME
+tIME_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'tIME')
+if len(tIME_data) > 0:
+    print("\nChunk tIME:")
+    year, month, day, hour, minute, second = struct.unpack('>hbbbbb', tIME_data)
+    print(str(day) + '.' + str(month) + '.' + str(year) + " " + str(hour) + ":" + str(minute) + ":" + str(second))
+
+# gAMA
+gAMA_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'gAMA')
+if len(gAMA_data) > 0:
+    print("\nChunk gAMA:")
+    gamma = int.from_bytes(gAMA_data, 'big') / 100000
+    gamma = round(1/gamma, 2)
+    print(gamma)
+
+# cHRM
+cHRM_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'cHRM')
+if len(cHRM_data) > 0:
+    print("\nChunk cHRM:")
+    W_P_X, W_P_Y, R_X, R_Y, G_X, G_Y, B_X, B_Y = struct.unpack('>iiiiiiii', cHRM_data)
+    print("White Point x: ", W_P_X/100000)
+    print("White Point Y: ", W_P_Y / 100000)
+    print("Red x: ", R_X / 100000)
+    print("Red y: ", R_Y / 100000)
+    print("Green x: ", G_X / 100000)
+    print("Green y: ", G_Y / 100000)
+    print("Blue x: ", B_X / 100000)
+    print("Blue y: ", B_Y / 100000)
+
+# sRGB
+sRGB_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'sRGB')
+if len(sRGB_data) > 0:
+    rgb_list = ["Perceptual", "Relative colorimetric", "saturation", "Absolute colorimetric"]
+    print("\nChunk sRGB:")
+    rgb = struct.unpack('>b', sRGB_data)
+    rgb = rgb[0]
+    print("Rendering intent = " + rgb_list[rgb])
+
+# bKGD
+bKGD_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'bKGD')
+if len(bKGD_data) > 0:
+    print("\nChunk bKGD:")
+    if color_type == 2 or color_type == 6:
+        Red, Green, Blue = struct.unpack('>hhh', bKGD_data)
+        print("Background red color: " + str(int(Red)))
+        print("Background green color: " + str(int(Green)))
+        print("Background blue color: " + str(int(Blue)))
+    elif color_type == 3: #DO SPRAWDZENIA
+        Palette_index = struct.unpack('>b', bKGD_data)
+        print("Palette_index: " + str(int(Palette_index)))
+    elif color_type == 0 or color_type == 4: #DO SPRAWDZENIA
+        Grey = struct.unpack('>h', bKGD_data)
+        print("Background grey color: " + str(int(Grey)))
+
+
+# pHYs
+pHYs_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'pHYs')
+if len(pHYs_data) > 0:
+    print("\nChunk pHYs:")
+    Pix_X, Pix_Y, Unit_spec = struct.unpack('>iib', pHYs_data)
+    print("Pixels per unit X: " + str(Pix_X))
+    print("Pixels per unit Y: " + str(Pix_Y))
+    if Unit_spec == 1:
+        print("Pixel units: meter")
+    else:
+        print("Pixel units: unknown")
+
+
+# PLTE
+# PLTE_data = b''.join(chunk_data for chunk_type, chunk_data in chunks if chunk_type == b'PLTE')
+# print(str(PLTE_data))
+# PLTE_data = zlib.decompress(PLTE_data)
