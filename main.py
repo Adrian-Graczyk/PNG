@@ -9,8 +9,10 @@ import zlib
 from itertools import zip_longest
 import png
 from PIL import Image
+import xml.dom.minidom
 
-image_name = 'dragon'
+
+image_name = 'itxt'
 image = open(image_name + '.png', 'rb')
 PngSignature = b'\x89PNG\r\n\x1a\n'
 if image.read(len(PngSignature)) != PngSignature:
@@ -29,7 +31,7 @@ def read_chunk(image):
     chunk_expected_crc, = struct.unpack('>I', image.read(4))
     chunk_actual_crc = zlib.crc32(chunk_data, zlib.crc32(struct.pack('>4s', chunk_type)))
     if chunk_expected_crc != chunk_actual_crc:
-        raise Exception('chunk checksum failed')
+        print("WRONG CRC DETECTED - POSSIBLE METADATA MODIFICATION")
     return chunk_length, chunk_type, chunk_data, chunk_actual_crc
 
 
@@ -40,7 +42,7 @@ def save_anonymized(image):
     new_file.write(PngSignature)
     for chunk in chunks:
         if chunk[1] == b'IHDR' or chunk[1] == b'IDAT' or chunk[1] == b'IEND' or chunk[1] == b'PLTE':
-            print(chunk[3].to_bytes(4, byteorder='big'))
+            #print(chunk[3].to_bytes(4, byteorder='big'))
             new_file.write(chunk[0].to_bytes(4, byteorder='big'))
             new_file.write(chunk[1])
             new_file.write(chunk[2])
@@ -99,13 +101,27 @@ if len(tEXt_data) > 0:
     text_b = text_b.lstrip("'")
     text_b = text_b.rstrip("'")
     Text = text_b.split("\\x00")
-    print(Text)
+    print(Text, "\n")
 
 # iTXt
 iTXt_data = b''.join(chunk_data for chunk_length, chunk_type, chunk_data, chunk_actual_crc in chunks if chunk_type == b'iTXt')
 if len(iTXt_data) > 0:
-    Text = str(iTXt_data)
-    print(Text)
+    text_b = str(iTXt_data)
+    print("iTXt Chunk unedited format:")
+    print(text_b)
+    print("\niTXt Chunk edited format:")
+    if text_b.find("<") != -1:
+        text_b = text_b.rstrip("'")
+        text_b = text_b.lstrip("'b")
+        TEXT = text_b.split("<")
+        Header = TEXT[0].rstrip(r"\x00")
+        print(Header)
+        text_b = "<"+"<".join(TEXT[1:])
+        dom = xml.dom.minidom.parseString(text_b)
+        pretty_xml_as_string = dom.toprettyxml()
+        print(pretty_xml_as_string)
+    else:
+        print("iTXt Chunk not in XMP format!")
 
 # tIME
 tIME_data = b''.join(chunk_data for chunk_length, chunk_type, chunk_data, chunk_actual_crc in chunks if chunk_type == b'tIME')
