@@ -10,9 +10,11 @@ from itertools import zip_longest
 import png
 from PIL import Image
 import xml.dom.minidom
+import matplotlib.pyplot as plt
+import numpy as np
 
 
-image_name = 'itxt'
+image_name = 'amogus'
 image = open(image_name + '.png', 'rb')
 PngSignature = b'\x89PNG\r\n\x1a\n'
 if image.read(len(PngSignature)) != PngSignature:
@@ -41,7 +43,7 @@ def save_anonymized(image):
     new_file = open(image_name + '_copy' + '.png', 'wb')
     new_file.write(PngSignature)
     for chunk in chunks:
-        if chunk[1] == b'IHDR' or chunk[1] == b'IDAT' or chunk[1] == b'IEND' or chunk[1] == b'PLTE':
+        if chunk[1] == b'IHDR' or chunk[1] == b'IDAT' or chunk[1] == b'IEND' or chunk[1] == b'PLTE' or chunk[1] == b'tRNS':
             #print(chunk[3].to_bytes(4, byteorder='big'))
             new_file.write(chunk[0].to_bytes(4, byteorder='big'))
             new_file.write(chunk[1])
@@ -73,15 +75,16 @@ if filter_method != 0:
     raise Exception('invalid filter method')
 
 Color_Types = []
-Color_Types.append((0, "Grayscale"))
-Color_Types.append((2, "Truecolor"))
-Color_Types.append((3, "Indexed-color"))
-Color_Types.append((4, "Grayscale with alpha"))
-Color_Types.append((6, "Truecolor with alpha"))
+Color_Types.append((0, "Grayscale", 1))
+Color_Types.append((2, "Truecolor", 3))
+Color_Types.append((3, "Indexed-color", 1))
+Color_Types.append((4, "Grayscale with alpha", 2))
+Color_Types.append((6, "Truecolor with alpha", 4))
 
 for Type in Color_Types:
     if color_type == Type[0]:
         color_type_string = Type[1]
+        color_type_bpp = Type[2]
 
 print("\nChunk IHDR:")
 print("Width = ", width)
@@ -189,18 +192,156 @@ if len(pHYs_data) > 0:
     else:
         print("Pixel units: unknown")
 
+#tRNS (used only for type 3)
+tRNS_data = b''.join(chunk_data for chunk_length, chunk_type, chunk_data, chunk_actual_crc in chunks if chunk_type == b'tRNS')
+
 # PLTE
-PLTE_data = b''.join(chunk_data for chunk_length, chunk_type, chunk_data, chunk_actual_crc in chunks if chunk_type == b'PLTE')
-if len(PLTE_data) > 0:
-    PLTE_list = []
-    PLTE_tuple_list = []
-    for x in PLTE_data.hex(' ').split(' '):
-        PLTE_list.append(int(x, 16))
-    for i in range(len(PLTE_list)):
-        if i % 3 == 0:
-            PLTE_tuple_list.append((PLTE_list[i], PLTE_list[i + 1], PLTE_list[i + 2]))
-    print("PLTE chunk:")
-    print(PLTE_tuple_list, "\n")
+PLTE_data = bytearray(b''.join(chunk_data for chunk_length, chunk_type, chunk_data, chunk_actual_crc in chunks if chunk_type == b'PLTE'))
+
+def paeth_predictor(a, b, c):
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+    if pa <= pb and pa <= pc:
+       return a
+    elif pb <= pc:
+       return b
+    else:
+       return c
+
+def recon_a(r, c, image_bytes):
+    return image_bytes[r * (width*color_type_bpp) + c - color_type_bpp] if c >= color_type_bpp else 0
+
+
+def recon_b(r, c, image_bytes):
+    return image_bytes[(r - 1) * (width*color_type_bpp) + c] if r > 0 else 0
+
+
+def recon_c(r, c, image_bytes):
+    return image_bytes[(r - 1) * (width*color_type_bpp) + c - color_type_bpp] if r > 0 and c >= color_type_bpp else 0
+
+# IDAT
+IDAT_data = b''.join(chunk_data for chunk_length, chunk_type, chunk_data, chunk_actual_crc in chunks if chunk_type == b'IDAT')
+image_bytes = []
+
+if len(IDAT_data) > 0:
+    decompressed_test = zlib.decompress(IDAT_data)
+    print("\nExpected length:"+str(height*(1+width*color_type_bpp))+"\nActual length:"+str(len(decompressed_test)))
+
+    for r in range(height):
+        row_filter = decompressed_test[r*(1+width*color_type_bpp)]
+        for c in range(width*color_type_bpp):
+            if(row_filter==0):
+                image_bytes.append(0xff&int(decompressed_test[1+c+(1+width*color_type_bpp)*r]))
+            elif(row_filter==1):
+                image_bytes.append(0xff&int((decompressed_test[1+c+(1+width*color_type_bpp)*r] + recon_a(r,c,image_bytes))))
+            elif(row_filter==2):
+                image_bytes.append(0xff&
+                    int(decompressed_test[1+c + (1 + width * color_type_bpp) * r] + recon_b(r, c, image_bytes)))
+            elif(row_filter==3):
+                image_bytes.append(0xff&
+                    int(decompressed_test[1+c + (1 + width * color_type_bpp) * r] + (recon_a(r, c, image_bytes)
+                                                                               +recon_b(r, c, image_bytes))//2))
+            elif(row_filter==4):
+                image_bytes.append(0xff&int(decompressed_test[1+c + (1 + width * color_type_bpp) * r] +
+                    paeth_predictor(recon_a(r,c,image_bytes),recon_b(r,c,image_bytes),recon_c(r,c,image_bytes))))
+
+
+
+    # Applying palette
+    if len(PLTE_data) > 0:
+        depaleted = []
+        for byte in image_bytes:
+            depaleted.append(PLTE_data[byte*3])
+            depaleted.append(PLTE_data[byte*3+1])
+            depaleted.append(PLTE_data[byte*3+2])
+            if len(tRNS_data)>0:
+                if len(tRNS_data) > byte:
+                    depaleted.append(tRNS_data[byte])
+                else:
+                    depaleted.append(255)
+
+
+
+
+    #GRAYSCALE WITH NTSC FORMULA
+    image_bytes_grayscale=[]
+    i = 0
+    while i < len(image_bytes):
+        if len(PLTE_data)>0:
+            if len(tRNS_data) > 0:
+                image_bytes_grayscale.append(int((0.299 * depaleted[i * 4] + 0.587 * depaleted[i * 4 + 1] + 0.114 * depaleted[i * 4 + 2])*depaleted[i*4+3]/255+(255-depaleted[i*4+3])))
+            else:
+                image_bytes_grayscale.append(int(0.299 * depaleted[i * 3] + 0.587 * depaleted[i * 3 + 1] + 0.114 * depaleted[i * 3 + 2]))
+        elif color_type_bpp==1:
+            image_bytes_grayscale.append(int(image_bytes[i]))
+        elif color_type_bpp == 2:
+            image_bytes_grayscale.append(int(image_bytes[i]+(255-image_bytes[i+1])))
+            #image_bytes_grayscale.append(int(image_bytes[i]))
+            i += 1
+        elif color_type_bpp==3:
+            image_bytes_grayscale.append(int(0.299*image_bytes[i]+0.587*image_bytes[i+1]+0.114*image_bytes[i+2]))
+            i+=2
+        elif color_type_bpp==4:
+            image_bytes_grayscale.append(int((0.299 * image_bytes[i] + 0.587 * image_bytes[i + 1] + 0.114 * image_bytes[i + 2])*image_bytes[i+3]/255+(255-image_bytes[i+3])))
+            #image_bytes_grayscale.append(int((0.299 * image_bytes[i] + 0.587 * image_bytes[i + 1] + 0.114 * image_bytes[i + 2])))
+            i+=3
+        i += 1
+
+    plt.figure(1)
+
+    plt.subplot(131)
+    plt.imshow(np.array(image_bytes_grayscale).reshape((height, width)), cmap='gray', vmin=0, vmax=255)
+    plt.title('Image in grayscale'), plt.xticks([]), plt.yticks([])
+
+    fourier = np.fft.fft2(np.array(image_bytes_grayscale).reshape((height, width)))
+    fourier_shifted = np.fft.fftshift(fourier)
+    fourier_mag = np.asarray(20 * np.log10(np.abs(fourier_shifted)), dtype=np.uint8)
+    fourier_phase = np.asarray(np.angle(fourier_shifted), dtype=np.uint8)
+
+    plt.subplot(132)
+    plt.imshow(fourier_mag, cmap='gray')
+    plt.title('FFT Magnitude'), plt.xticks([]), plt.yticks([])
+
+    plt.subplot(133)
+    plt.imshow(fourier_phase, cmap='gray')
+    plt.title('FFT Phase'), plt.xticks([]), plt.yticks([])
+
+    plt.figure(2)
+
+    plt.subplot(121)
+    fourier_inverted = np.fft.ifft2(fourier)
+    plt.imshow(np.asarray(fourier_inverted.real, dtype=np.uint8), cmap='gray')
+    plt.title('Image after inverted fft'), plt.xticks([]), plt.yticks([])
+
+    difference = np.subtract(np.array(image_bytes_grayscale).reshape((height, width)), fourier_inverted)
+    difference = np.abs(difference)
+    plt.subplot(122)
+    plt.imshow(np.asarray(difference.real, dtype=np.uint8), cmap='gray')
+    plt.title('Difference'), plt.xticks([]), plt.yticks([])
+
+    print("\nMax difference between image in grayscale and the same image\n"
+          "after FFT and inverted FFT:")
+    print(np.max(difference))
+
+    if len(PLTE_data) > 0:
+        palette_with_trans = []
+        for i in range(len(PLTE_data)):
+            if i < len(tRNS_data)*3:
+                palette_with_trans.append(int(PLTE_data[i]*tRNS_data[int(i/3)]/255+(255-tRNS_data[int(i/3)])))
+            else:
+                palette_with_trans.append(PLTE_data[i])
+        while len(palette_with_trans)<256*3:
+            palette_with_trans.append(0)
+        plt.figure(3)
+        plt.imshow(np.array(palette_with_trans).reshape((16, 16, 3)), vmin=0, vmax=255)
+        plt.title('Palette'), plt.xticks([]), plt.yticks([])
+
+
+
+    #plt.imshow(np.array(depaleted).reshape((height, width, color_type_bpp)), cmap='gray', vmin=0, vmax=255)
+    plt.show()
 
 save_anonymized(image)
 
