@@ -1,28 +1,24 @@
-# This is a sample Python script.
-
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-import numpy as np
-import fire
 import struct
 import zlib
-from itertools import zip_longest
-import png
 from PIL import Image
 import xml.dom.minidom
 import matplotlib.pyplot as plt
 import numpy as np
 
+# Nazwy plików do najlepszego przetestowania odpowiednich funckjonalności
+# itxt - iTXt_test, itxt_not_XMP
+# PLTE - PLTE, PLTE_test
+# Fourier - 1
 
-image_name = 'amogus'
+image_name = 'PLTE'
 image = open(image_name + '.png', 'rb')
 PngSignature = b'\x89PNG\r\n\x1a\n'
 if image.read(len(PngSignature)) != PngSignature:
     raise Exception('Invalid PNG Signature')
 
 # Wyświetlanie obrazu
-# image_display = Image.open(image_name + '.png')
-# image_display.show()
+image_display = Image.open(image_name + '.png')
+image_display.show()
 
 
 # Przyjmuje obraz w trybie czytania bitowego
@@ -50,10 +46,6 @@ def save_anonymized(image):
             new_file.write(chunk[2])
             new_file.write(chunk[3].to_bytes(4, byteorder='big'))
     new_file.close()
-
-
-
-
 
 
 chunks = []
