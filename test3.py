@@ -3,12 +3,15 @@ from Random_Key_Generator import *
 from collections import deque
 from main import *
 import png
+import rsa
+import time
+
 
 key_size = 1024
 # all encrypted data blocks has the length of the key
 encrypted_block_size = key_size // 8
 # data block has to be smaller than key
-data_block_size = key_size // 8 - 1
+data_block_size = key_size // (8 + 1)
 
 
 def get_main_file_info(chunks):
@@ -96,6 +99,7 @@ def encrypt_ecb(data, public_key):
 
         for i in range(encrypted_block_size):
             encrypted_data.append(cipher_hex[i])
+
     return encrypted_data
 
 
@@ -229,6 +233,41 @@ def create_decrypted_png(metadata_chunks, decrpted_data, width, height, bytes_pe
     decrypted_file.close()
 
 
+def encrypt_rsa_library_function(data, public_key):
+    (bob_pub, bob_priv) = rsa.newkeys(key_size)
+    bob_pub.n = public_key[1]
+    bob_pub.e = public_key[0]
+    encrypted_data = []
+    for i in range(0, len(data), data_block_size):
+
+        block_to_encrypt_hex = bytes(data[i: i + data_block_size])
+        cipher_hex = rsa.encrypt(block_to_encrypt_hex, bob_pub)
+
+        for i in range(encrypted_block_size):
+            encrypted_data.append(cipher_hex[i])
+
+    return encrypted_data
+
+
+def decrypt_rsa_library_function(data, after_iend_data, private_key, original_data_len):
+    encrypted_data = connect_data(data, after_iend_data)
+    (bob_pub, bob_priv) = rsa.newkeys(key_size)
+    bob_priv.n = private_key[1]
+    bob_priv.d = private_key[0]
+    decrypted_data = []
+
+    for i in range(0, len(encrypted_data), encrypted_block_size):
+
+        encrypted_hex_block = bytes(encrypted_data[i: i + encrypted_block_size])
+        decrypted_hex = rsa.decrypt(encrypted_hex_block, bob_priv)
+
+        for byte in decrypted_hex:
+            decrypted_data.append(byte)
+
+    return decrypted_data
+
+
+
 image_name = 'spiderman'
 public_key, private_key = generate_keys(key_size)
 
@@ -249,3 +288,28 @@ converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
 decrypted_data = decrypt_ecb(converted_data, x, private_key, original_length)
 create_decrypted_png(chunks, decrypted_data, width, height, bits_per_pixel, image_name+"_decrypted")
 
+"""
+start = time.time()
+print("Starting measuring time:")
+    
+#ENCRYPTING_WITH_LIBRARY_FUNCTION
+chunks, x = get_chunks_and_after_IEND_data(image_name)
+width, height, bits_per_pixel = get_main_file_info(chunks)
+data = get_IDAT_data(chunks)
+converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
+cipher = encrypt_rsa_library_function(converted_data, public_key)
+original_length = len(converted_data)
+save_encrypted_png(cipher, original_length, width, height, bits_per_pixel, image_name+"_encrypted_library")
+
+#DECRYPTING_WITH_LIBRARY_FUNCTION
+chunks, x = get_chunks_and_after_IEND_data(image_name+"_encrypted_library")
+width, height, bits_per_pixel = get_main_file_info(chunks)
+data = get_IDAT_data(chunks)
+converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
+decrypted_data = decrypt_rsa_library_function(converted_data, x, private_key, original_length)
+create_decrypted_png(chunks, decrypted_data, width, height, bits_per_pixel, image_name+"_decrypted_library")
+
+end = time.time()
+print("Measured time:")
+print(end - start)
+"""
