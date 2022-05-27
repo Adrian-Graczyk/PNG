@@ -2,14 +2,18 @@ import os
 from Random_Key_Generator import *
 from collections import deque
 from main import *
+from operator import xor
 import png
 import rsa
 import time
+
+nonce = 0xfdd3da1011e9862873a9fa465d81fd2229377adda18fdb438d2da631ab6d99ec8bd8520fabaf85d2f968f87a46fdeec8004eff4596885f31a8d56985582dee7799fd0b2b123484622cf672bd12d0d9c2fc1f36923d777d74386e7429bae51349efe0575a82b22920c9b1d1e584dfe57925ace546066d4719d2392ff644d9ab51
 
 
 key_size = 1024
 # all encrypted data blocks has the length of the key
 encrypted_block_size = key_size // 8
+encrypted_block_size_ctr = key_size // 8
 # data block has to be smaller than key
 data_block_size = key_size // (8 + 1)
 
@@ -103,6 +107,47 @@ def encrypt_ecb(data, public_key):
     return encrypted_data
 
 
+def encrypt_ctr(data, public_key):
+    encrypted_data = []
+    for i in range(0, len(data), encrypted_block_size_ctr):
+
+        counter = xor(i//encrypted_block_size_ctr, nonce)
+
+        ciphered_counter = pow(counter, public_key[0], public_key[1])
+
+        tmp_block_size = len(data[i: i + encrypted_block_size_ctr])
+
+        data_as_int = int.from_bytes(data[i: i + encrypted_block_size_ctr], "big")
+        cipher_hex = xor(ciphered_counter, data_as_int).to_bytes(encrypted_block_size_ctr, "big")
+
+        for j in range(len(cipher_hex)):
+            encrypted_data.append(cipher_hex[j])
+
+    return encrypted_data
+
+
+def decrypt_ctr(data, after_iend_data, public_key, original_data_len):
+    decrypted_data = []
+    encrypted_data = connect_data(data, after_iend_data)
+    for i in range(0, len(encrypted_data), encrypted_block_size_ctr):
+
+        counter = xor(i//encrypted_block_size_ctr, nonce)
+
+        ciphered_counter = pow(counter, public_key[0], public_key[1])
+
+        if len(decrypted_data) + encrypted_block_size_ctr > original_data_len:
+            decrypted_hex_len = len(data[i: i + encrypted_block_size_ctr])
+        else:
+            decrypted_hex_len = encrypted_block_size_ctr
+
+        data_as_int = int.from_bytes(encrypted_data[i: i + encrypted_block_size_ctr], "big")
+
+        decrypted_hex = xor(ciphered_counter, data_as_int).to_bytes(encrypted_block_size_ctr, "big")
+
+        for i in range(decrypted_hex_len):
+            decrypted_data.append(decrypted_hex[i])
+
+    return decrypted_data
 
 
 def get_png_writer(width, height, bytes_per_pixel):
@@ -277,8 +322,13 @@ width, height, bits_per_pixel = get_main_file_info(chunks)
 data = get_IDAT_data(chunks)
 converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
 cipher = encrypt_ecb(converted_data, public_key)
+
+cipher2 = encrypt_ctr(converted_data, public_key)
+
 original_length = len(converted_data)
 save_encrypted_png(cipher, original_length, width, height, bits_per_pixel, image_name+"_encrypted")
+
+save_encrypted_png(cipher2, original_length, width, height, bits_per_pixel, image_name+"_encrypted2")
 
 #DECRYPTING
 chunks, x = get_chunks_and_after_IEND_data(image_name+"_encrypted")
@@ -287,6 +337,14 @@ data = get_IDAT_data(chunks)
 converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
 decrypted_data = decrypt_ecb(converted_data, x, private_key, original_length)
 create_decrypted_png(chunks, decrypted_data, width, height, bits_per_pixel, image_name+"_decrypted")
+
+#DECRYPTING2
+chunks, x = get_chunks_and_after_IEND_data(image_name+"_encrypted2")
+width, height, bits_per_pixel = get_main_file_info(chunks)
+data = get_IDAT_data(chunks)
+converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
+decrypted_data = decrypt_ctr(converted_data, x, public_key, original_length)
+create_decrypted_png(chunks, decrypted_data, width, height, bits_per_pixel, image_name+"_decrypted2")
 
 """
 start = time.time()
