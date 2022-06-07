@@ -312,10 +312,68 @@ def decrypt_rsa_library_function(data, after_iend_data, private_key, original_da
     return decrypted_data
 
 
+def encrypt_test(chunks, public_key):
+    (bob_pub, bob_priv) = rsa.newkeys(key_size)
+    bob_pub.n = public_key[1]
+    bob_pub.e = public_key[0]
+    encrypted_data = []
+    length = 0
+    count = 0
+    for chunk in chunks:
+        if chunk[1] == b'IDAT':
+            count = count + 1
+            length = length + len(chunk[2])
+            for i in range(0, len(chunk[2]), data_block_size):
+
+                block_to_encrypt_hex = bytes(chunk[2][i: i + data_block_size])
+                cipher_hex = rsa.encrypt(block_to_encrypt_hex, bob_pub)
+
+                for i in range(encrypted_block_size):
+                    encrypted_data.append(cipher_hex[i])
+
+    return encrypted_data, length, count
+
+
+def save_test(count, encrypted_data, original_length, width, height, bytes_per_pixel, encrypted_file_name):
+
+    idat_data, after_iend_data = separate_after_iend_data(encrypted_data, original_length)
+    idat_data_cut = []
+    for i in range(0, original_length, int(original_length/count)):
+        idat_data_cut.append(encrypted_data[i:i+int(original_length/count)])
+
+    original_chunks, x = get_chunks_and_after_IEND_data(image_name)
+
+    new_file = open(encrypted_file_name + '.png', 'wb')
+    new_file.write(png_signature)
+    idat_finish = False
+
+    z=0
+    for chunk in original_chunks:
+        if chunk[1] == b'IDAT':
+            new_file.write(chunk[0].to_bytes(4, byteorder='big'))
+            new_file.write(chunk[1])
+            new_file.write(bytes(idat_data_cut[z]))
+            new_file.write(chunk[3].to_bytes(4, byteorder='big'))
+            z=z+1
+        else:
+            new_file.write(chunk[0].to_bytes(4, byteorder='big'))
+            new_file.write(chunk[1])
+            new_file.write(chunk[2])
+            new_file.write(chunk[3].to_bytes(4, byteorder='big'))
+    new_file.write(bytes(after_iend_data))
+    new_file.close()
+
 
 image_name = 'spiderman'
 public_key, private_key = generate_keys(key_size)
 
+
+chunks, x = get_chunks_and_after_IEND_data(image_name)
+width, height, bits_per_pixel = get_main_file_info(chunks)
+cipher, original_length, count = encrypt_test(chunks, public_key)
+save_test(count, cipher, original_length, width, height, bits_per_pixel, image_name+"_encrypted")
+
+'''
 #ENCRYPTING
 chunks, x = get_chunks_and_after_IEND_data(image_name)
 width, height, bits_per_pixel = get_main_file_info(chunks)
@@ -337,6 +395,7 @@ data = get_IDAT_data(chunks)
 converted_data = convert_IDAT_data(data, width, height, bits_per_pixel)
 decrypted_data = decrypt_ecb(converted_data, x, private_key, original_length)
 create_decrypted_png(chunks, decrypted_data, width, height, bits_per_pixel, image_name+"_decrypted")
+'''
 
 #DECRYPTING2
 chunks, x = get_chunks_and_after_IEND_data(image_name+"_encrypted2")
